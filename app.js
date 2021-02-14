@@ -1,7 +1,6 @@
 require('dotenv').config();
-
 const express = require('express');
-const { body, validationResult, check } = require('express-validator');
+const { body, validationResult } = require('express-validator');
 const app = express();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -26,6 +25,7 @@ MongoClient.connect(uri, {useNewUrlParser: true, useUnifiedTopology: true}, (err
 
 })
 
+// Random Id Generation function for the School Public Id Field
 generatePublicId = () => {
 	const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 	const string_length = 4;
@@ -39,80 +39,93 @@ generatePublicId = () => {
 
 app.use(express.json());
 
-app.post('/user/signup', body('email').isEmail(), body('password').isLength({ min: 5 }), (req, res) => {
-	const errors = validationResult(req);
-	if (!errors.isEmpty()) {
-		return res.status(400).json({ 
-			"status": false,
-			"errors":[
-				{
-					"message": "Something went wrong."
-				}
-			]
-		});
-	} else {
-		userCollection.findOne({ email: req.body.email }).then(result => {
-			if (result) {
-				return res.status(400).json({
-					message: "User already exists"
-				})
-			} else {
-				bcrypt.hash(req.body.password, 5, (err, hash) => {
-					if (err) {
-						return res.status(501).json({
-							error: err
-						})
-					} else {
-						const userDocument = {
-							_id: new ObjectID,
-							first_name: req.body.first_name,
-							last_name: req.body.last_name,
-							email: req.body.email,
-							mobile: req.body.mobile,
-							password: hash,
-							created: Date.now(),
-							schoolId: new ObjectID,
-							updated: null
-						}
-						userCollection.insertOne(userDocument).then(result => {
-							const payload = {
-								"user":{
-									"_id": userDocument._id,
-									"first_name": userDocument.first_name,
-									"last_name": userDocument.last_name,
-									"email": userDocument.email,
-									"mobile": userDocument.mobile,
-									"created": userDocument.created,
-									"updated": null
-								}
-							}
-							
-							const token = jwt.sign(payload, "secret", {
-								expiresIn: "1h"
-							});
-			
-							return res.status(201).json({
-								"status": "true",
-								"token" : token
-							})
-						}).catch(err => {
-							return res.status(501).json({
-								"status":false,
-								"errors":[
-									{
-										"message": `Something went wrong.`
-									}
-								]
-							})
-						});
+// User Signup Endpoint. Works fine.
+app.post('/user/signup',
+	body('first_name').exists().trim().escape().notEmpty(),
+	body('last_name').exists().trim().escape().notEmpty(),
+	body('mobile').notEmpty(),
+	body('email').isEmail().notEmpty(), 
+	body('password').isLength({ min: 5 }).notEmpty(), 
+	
+	(req, res) => {
+		const errors = validationResult(req);
+		if (!errors.isEmpty()) {
+			return res.status(400).json({ 
+				"status": false,
+				"errors":[
+					{
+						"message": "Something went wrong.",
+						"errors": errors
 					}
-				})
-			}
-		});
-	}
+				]
+			});
+		} else {
+			userCollection.findOne({ email: req.body.email }).then(result => {
+				if (result) {
+					return res.status(400).json({
+						message: "User already exists"
+					})
+				} else {
+					bcrypt.hash(req.body.password, 5, (err, hash) => {
+						if (err) {
+							return res.status(501).json({
+								error: err
+							})
+						} else {
+							const userDocument = {
+								_id: new ObjectID,
+								first_name: req.body.first_name,
+								last_name: req.body.last_name,
+								email: req.body.email,
+								mobile: req.body.mobile,
+								password: hash,
+								created: Date.now(),
+								schoolId: new ObjectID,
+								updated: null
+							}
+							userCollection.insertOne(userDocument).then(result => {
+								const payload = {
+									"user":{
+										"_id": userDocument._id,
+										"first_name": userDocument.first_name,
+										"last_name": userDocument.last_name,
+										"email": userDocument.email,
+										"mobile": userDocument.mobile,
+										"created": userDocument.created,
+										"updated": null
+									}
+								}
+								
+								const token = jwt.sign(payload, "secret", {
+									expiresIn: "1h"
+								});
+				
+								return res.status(201).json({
+									"status": "true",
+									"token" : token
+								})
+							}).catch(err => {
+								return res.status(501).json({
+									"status":false,
+									"errors":[
+										{
+											"message": `Something went wrong.`
+										}
+									]
+								})
+							});
+						}
+					})
+				}
+			});
+		}
 })
 
-app.post('/user/signin', body('email').isEmail(), (req, res) => {
+// User Signin Endpoint. Works fine.
+app.post('/user/signin', 
+	body('email').isEmail().notEmpty(),
+	body('password').notEmpty(),
+	(req, res) => {
 	const errors = validationResult(req);
 	if (!errors.isEmpty()) {
 		return res.status(400).json({ errors: errors.array() });
@@ -178,6 +191,7 @@ app.post('/user/signin', body('email').isEmail(), (req, res) => {
 	}
 })
 
+// Get list of users endpoint. Works fine.
 app.get('/user/get', (req, res) => {
 	userCollection.find().toArray().then(users => {
 		return res.status(200).json({
@@ -208,6 +222,7 @@ app.get('/user/get', (req, res) => {
 	})
 })
 
+// Update user endpoint. Works fine.
 app.patch('/user/:id', (req, res) => {
 	const schoolId = req.body.schoolId;
 	userCollection.updateOne({_id: req.params._id}, {"$set": {"schoolId": schoolId, "updated": Date.now() }}).then(result => {
@@ -226,37 +241,7 @@ app.patch('/user/:id', (req, res) => {
 	})
 })
 
-// This route wasn't mentioned in the assignment, but the task listed stated that we need to create two endpoints for school, one was to create and the other was to get the list
-app.post('/school/:_id', (req, res) => {
-	const schoolDocument = {
-		_id: new ObjectID(req.params._id),
-		public_id: generatePublicId(),
-		name: req.body.name,
-		city: req.body.city,
-		state: req.body.state,
-		country: req.body.country,
-		created: Date.now(),
-		updated: null
-	}
-
-	console.log(schoolDocument._id);
-
-	schoolCollection.insertOne(schoolDocument).then(result => {
-		return res.status(201).json({
-			"status": "true"
-		})
-	}).catch(err => {
-		return res.status(501).json({
-			"status":false,
-			"errors":[
-				{
-					"message": "Something went wrong."
-				}
-			]
-		})
-	})
-})
-
+// Get Schools Endpoint. Works fine.
 app.get('/school/get', (req, res) => {
 	schoolCollection.find().toArray().then(schools => {
 		return res.status(200).json({
@@ -288,8 +273,8 @@ app.get('/school/get', (req, res) => {
 	})
 })
 
+// Get students by school id. :(
 app.get('/school/:_id/students', (req, res) => {
-	console.log(req.params._id);
 	userCollection.find({"schoolId": req.params._id}).toArray().then(users => {
 		return res.status(200).json({
 			"status": "true",
@@ -319,6 +304,43 @@ app.get('/school/:_id/students', (req, res) => {
 	})
 })
 
+// Post School endpoint. Works fine.
+app.post('/school/:_id',
+	body('name').trim().escape().notEmpty(),
+	body('city').trim().escape().notEmpty(),
+	body('state').trim().escape().notEmpty(),
+	body('country').trim().escape().notEmpty(),
+(req, res) => {
+	const schoolDocument = {
+		_id: new ObjectID(req.params._id),
+		public_id: generatePublicId(),
+		name: req.body.name,
+		city: req.body.city,
+		state: req.body.state,
+		country: req.body.country,
+		created: Date.now(),
+		updated: null
+	}
+
+	console.log(schoolDocument._id);
+
+	schoolCollection.insertOne(schoolDocument).then(result => {
+		return res.status(201).json({
+			"status": "true"
+		})
+	}).catch(err => {
+		return res.status(501).json({
+			"status":false,
+			"errors":[
+				{
+					"message": "Something went wrong."
+				}
+			]
+		})
+	})
+})
+
+// Default Route
 app.use('/', (req, res) => {
 	res.status(201).json({
 		"message": "Server is up and running!"
